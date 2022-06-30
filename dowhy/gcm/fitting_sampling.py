@@ -6,14 +6,14 @@ Functions in this module should be considered experimental, meaning there might 
 from typing import Any
 
 import networkx as nx
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
 from dowhy.gcm import config
 from dowhy.gcm.cms import ProbabilisticCausalModel
 from dowhy.gcm.graph import get_ordered_predecessors, is_root_node, PARENTS_DURING_FIT, \
-    validate_causal_model_assignment, validate_causal_dag
-from dowhy.gcm.util.general import column_stack_selected_numpy_arrays, convert_to_data_frame
+    validate_causal_model_assignment, validate_causal_dag, _parent_samples_of
 
 
 def fit(causal_model: ProbabilisticCausalModel, data: pd.DataFrame):
@@ -72,13 +72,15 @@ def draw_samples(causal_model: ProbabilisticCausalModel, num_samples: int) -> pd
     """
     validate_causal_dag(causal_model.graph)
 
-    drawn_samples = {}
+    sorted_nodes = list(nx.topological_sort(causal_model.graph))
+    drawn_samples = pd.DataFrame(np.empty((num_samples, len(sorted_nodes))), columns=sorted_nodes)
 
-    for node in nx.topological_sort(causal_model.graph):
+    for node in sorted_nodes:
+        causal_mechanism = causal_model.causal_mechanism(node)
+
         if is_root_node(causal_model.graph, node):
-            drawn_samples[node] = causal_model.causal_mechanism(node).draw_samples(num_samples)
+            drawn_samples[node] = causal_mechanism.draw_samples(num_samples)
         else:
-            drawn_samples[node] = causal_model.causal_mechanism(node).draw_samples(
-                column_stack_selected_numpy_arrays(drawn_samples, get_ordered_predecessors(causal_model.graph, node)))
+            drawn_samples[node] = causal_mechanism.draw_samples(_parent_samples_of(node, causal_model, drawn_samples))
 
-    return convert_to_data_frame(drawn_samples)
+    return drawn_samples
